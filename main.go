@@ -3,8 +3,12 @@ package main
 import (
 	"archive/zip"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"os"
 	"strings"
 
 	"github.com/beevik/etree"
@@ -43,10 +47,12 @@ func ParseXML(f io.Reader) {
 	root := doc.Root()
 	fmt.Printf("Root Element: %s\n", root.Tag)
 	// Testing: Iterating over all paragraphs
-	for _, p := range doc.FindElements("//sdt") {
-		//if i == 4 {
-		//	break
-		//}
+	for i, p := range doc.FindElements("//sdt") {
+		if i == 8 {
+			break
+		}
+		// TODO: there might references where Base64 part is split up into multiple
+		// instrText elements
 		for _, x := range p.FindElements(".//instrText") {
 			encodedString := x.Text()
 			if !strings.HasPrefix(encodedString, "ADDIN CitaviPlaceholder") {
@@ -58,18 +64,68 @@ func ParseXML(f io.Reader) {
 			cleanEncodedString = strings.TrimSuffix(cleanEncodedString, "}")
 			//	fmt.Printf("%s", cleanEncodedString)
 
-			_, err := base64.StdEncoding.DecodeString(cleanEncodedString)
+			decodedBytes, err := base64.StdEncoding.DecodeString(cleanEncodedString)
 			if err != nil {
-				citations++
-				fmt.Printf("%s\n\n", cleanEncodedString)
-				fmt.Printf("%s\n\n", encodedString)
-				fmt.Printf("%v\n", x)
 				fmt.Println("Fehler beim Dekodieren:", err)
+				continue
 			}
 
 			//decodedString := string(decodedBytes)
-			//	fmt.Println("Dekodierter String:", decodedString)
+
+			titleStr, err := parseTitleFromEntry(decodedBytes)
+			if err != nil {
+				log.Fatalf("%e", err)
+			}
+			fmt.Println(titleStr)
+			// fmt.Println("Dekodierter String:", decodedString)
+			// writeToFile([]byte(decodedString), i)
 		}
 	}
 	fmt.Printf("We found %d citations.", citations)
+}
+
+func writeToFileJSON(t []byte, i int) {
+	err := os.WriteFile(fmt.Sprintf("json%d.json", i), t, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func parseTitleFromEntry(e []byte) (string, error) {
+	var jsonData map[string]interface{}
+	var sb strings.Builder
+	err := json.Unmarshal(e, &jsonData)
+	if err != nil {
+		return "", errors.New("error when unmarshalling JSON")
+	}
+	// next is Entries list
+	var entriesData []map[string]interface{}
+	if entries, ok := jsonData["Entries"].([]interface{}); ok { // Korrektur: Assertion auf []interface{}
+		for _, entry := range entries {
+			if entryMap, ok := entry.(map[string]interface{}); ok {
+				entriesData = append(entriesData, entryMap)
+			} else {
+				return "", errors.New("error: Entries  Map[string]interface{}")
+			}
+		}
+	} else {
+		return "", errors.New("error: jsonData['Entries'] ist kein []interface{}")
+	}
+	// next we need to get Reference part of entry
+	var referencesData []map[string]interface{}
+	for _, entry := range entriesData {
+		if referencesMap, ok := entry["Reference"].(map[string]interface{}); ok {
+			referencesData = append(referencesData, referencesMap)
+		} else {
+			return "", errors.New("error: Could not find references")
+		}
+	}
+	// try parse titles
+	for _, ref := range referencesData {
+		if title, ok := ref["Title"].(string); ok {
+			sb.WriteString(fmt.Sprintf(" %s ||", title))
+		}
+	}
+
+	return sb.String(), nil
 }
