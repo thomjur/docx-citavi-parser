@@ -20,6 +20,7 @@ type BibEntry struct {
 	Title       string
 	Year        string
 	CitationKey string // This key is taken from the BibTeX file
+	Pages       string
 }
 
 func (e *BibEntry) prettyPrint() string {
@@ -113,14 +114,12 @@ func ParseXML(f io.Reader, bibliography *parser.BibTeXFile, fileName string) {
 		textContainer := p.FindElement("./sdtContent//r/t")
 		if textContainer != nil {
 			textContainer.SetText(fmt.Sprintf("%s %s", textContainer.Text(), contentString))
-			//DEBUG
-			fmt.Println(textContainer.Text())
 		}
 
 	}
-	fmt.Printf("We found %d citations.", citations)
+	fmt.Printf("We found %d citations.\n", citations)
 	// Writing new XML
-	if fileName == "document.xml" {
+	if fileName == "word/document.xml" {
 		doc.WriteToFile("NEWDOC.xml")
 	} else {
 		doc.WriteToFile("NEWFN.xml")
@@ -130,7 +129,12 @@ func ParseXML(f io.Reader, bibliography *parser.BibTeXFile, fileName string) {
 func createCitationString(l []BibEntry) string {
 	var sb strings.Builder
 	for _, e := range l {
-		sb.WriteString(fmt.Sprintf(" [@%s] ", e.CitationKey))
+		sb.WriteString(fmt.Sprintf(" [@%s", e.CitationKey))
+		if e.Pages != "" {
+			sb.WriteString(fmt.Sprintf(", %s]", e.Pages))
+		} else {
+			sb.WriteString("]")
+		}
 	}
 	return sb.String()
 
@@ -168,12 +172,17 @@ func parseEntry(e []byte, bibliography *parser.BibTeXFile) ([]BibEntry, int, err
 	}
 
 	// Next we need to get Reference part of each entry
+	// we also get PageRange data
 	var referencesData []map[string]interface{}
+	var pageRangeData []map[string]interface{}
 	for _, entry := range entriesData {
 		if referencesMap, ok := entry["Reference"].(map[string]interface{}); ok {
 			referencesData = append(referencesData, referencesMap)
 		} else {
 			return []BibEntry{}, 0, errors.New("error: Could not find references")
+		}
+		if pageRange, ok := entry["PageRange"].(map[string]interface{}); ok {
+			pageRangeData = append(pageRangeData, pageRange)
 		}
 	}
 
@@ -198,6 +207,22 @@ func parseEntry(e []byte, bibliography *parser.BibTeXFile) ([]BibEntry, int, err
 			citations++
 		}
 		bibEntryList = append(bibEntryList, bibEntry)
+	}
+
+	// Finally, we add page numbers
+	for i, pages := range pageRangeData {
+		if startPage, ok := pages["StartPage"].(map[string]interface{}); ok {
+			if pageRange, ok := startPage["OriginalString"].(string); ok {
+				bibEntryList[i].Pages = pageRange
+			}
+		}
+		if endPage, ok := pages["EndPage"].(map[string]interface{}); ok {
+			if pageRange, ok := endPage["OriginalString"].(string); ok {
+				if pageRange != bibEntryList[i].Pages {
+					bibEntryList[i].Pages = fmt.Sprintf("%s-%s", bibEntryList[i].Pages, pageRange)
+				}
+			}
+		}
 	}
 
 	return bibEntryList, citations, nil
