@@ -48,20 +48,20 @@ func main() {
 
 	// Iterate over all files in ZIP archive
 	for _, f := range r.File {
-		if f.Name == "word/document.xml" {
+		if f.Name == "word/document.xml" || f.Name == "word/footnotes.xml" {
 			fmt.Printf("Found: %s\n", f.Name)
 			file, err := f.Open()
 			if err != nil {
 				fmt.Println(err)
 				return
 			}
-			ParseXML(file, bibliography)
+			ParseXML(file, bibliography, f.Name)
 			defer file.Close()
 		}
 	}
 }
 
-func ParseXML(f io.Reader, bibliography *parser.BibTeXFile) {
+func ParseXML(f io.Reader, bibliography *parser.BibTeXFile, fileName string) {
 	doc := etree.NewDocument()
 	citations := 0
 	if _, err := doc.ReadFrom(f); err != nil {
@@ -86,19 +86,44 @@ func ParseXML(f io.Reader, bibliography *parser.BibTeXFile) {
 			// Decoding Base64 encoding
 			decodedBytes, err := base64.StdEncoding.DecodeString(cleanEncodedString)
 			if err != nil {
-				fmt.Println("Fehler beim Dekodieren:", err)
+				//fmt.Println("Fehler beim Dekodieren:", err)
 				continue
 			}
 
-			_, c, err := parseEntry(decodedBytes, bibliography)
+			bibEntryList, c, err := parseEntry(decodedBytes, bibliography)
 			if err != nil {
-				fmt.Printf("%e", err)
+				//fmt.Printf("%e", err)
+				continue
 			}
 			citations += c
 			// TODO: ADD ENTRIES TO XML TREE HERE
+			// Creating string that should be added
+			contentString := createCitationString(bibEntryList)
+			// Create new element with this string in XML tree
+			textContainer := p.FindElement("./sdtContent//r/t")
+			if textContainer != nil {
+				textContainer.SetText(fmt.Sprintf("%s %s", textContainer.Text(), contentString))
+				//DEBUG
+				fmt.Println(textContainer.Text())
+			}
 		}
 	}
 	fmt.Printf("We found %d citations.", citations)
+	// Writing new XML
+	if fileName == "document.xml" {
+		doc.WriteToFile("NEWDOC.xml")
+	} else {
+		doc.WriteToFile("NEWFN.xml")
+	}
+}
+
+func createCitationString(l []BibEntry) string {
+	var sb strings.Builder
+	for _, e := range l {
+		sb.WriteString(fmt.Sprintf(" [@%s] ", e.CitationKey))
+	}
+	return sb.String()
+
 }
 
 func writeToFileJSON(t []byte, i int) {
@@ -158,7 +183,7 @@ func parseEntry(e []byte, bibliography *parser.BibTeXFile) ([]BibEntry, int, err
 		}
 		err := findCitationKey(&bibEntry, bibliography)
 		if err != nil {
-			log.Println(err)
+			//log.Println(err)
 		} else {
 			citations++
 		}
@@ -191,13 +216,8 @@ func findCitationKey(bibEntry *BibEntry, bibliography *parser.BibTeXFile) error 
 	for _, e := range bibliography.Entries {
 		if title, exists := e.Fields["title"]; exists {
 			cleanTitleEntry := cleanTitle(title)
-			if strings.Contains(cleanTitleBib, cleanTitleEntry) {
-				// DEBUG
-				fmt.Printf("title entry: %s title bib: %s", cleanTitleEntry, cleanTitleBib)
-
+			if cleanTitleBib == cleanTitleEntry {
 				if e.Key != "" {
-					// DEBUG
-					fmt.Printf("found key %s for entry with titel %s\n", e.Key, bibEntry.Title)
 					bibEntry.CitationKey = e.Key
 					found = true
 					break
