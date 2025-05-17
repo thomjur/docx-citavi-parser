@@ -9,10 +9,26 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/beevik/etree"
+	"github.com/thomjur/verifybibtex/parser"
 )
+
+type BibEntry struct {
+	Title       string
+	Year        string
+	CitationKey string // This key is taken from the BibTeX file
+}
+
+func (e *BibEntry) prettyPrint() string {
+	return fmt.Sprintf("Title: %s, Year: %s, CitationKey: %s", e.Title, e.Year, e.CitationKey)
+}
+
+func (e *BibEntry) toCiteproc() string {
+	return fmt.Sprintf("[@%s]", e.CitationKey)
+}
 
 func main() {
 	// Open ZIP file
@@ -23,6 +39,13 @@ func main() {
 	}
 	defer r.Close()
 
+	// Parsing and loading BibTeX
+	bibliography, err := parseBibTeXFile("bib.bib")
+	if err != nil {
+		log.Fatalln("could not parse bibtex file")
+	}
+	bibliography.Info()
+
 	// Iterate over all files in ZIP archive
 	for _, f := range r.File {
 		if f.Name == "word/document.xml" {
@@ -32,13 +55,13 @@ func main() {
 				fmt.Println(err)
 				return
 			}
-			ParseXML(file)
+			ParseXML(file, bibliography)
 			defer file.Close()
 		}
 	}
 }
 
-func ParseXML(f io.Reader) {
+func ParseXML(f io.Reader, bibliography *parser.BibTeXFile) {
 	doc := etree.NewDocument()
 	citations := 0
 	if _, err := doc.ReadFrom(f); err != nil {
@@ -46,39 +69,33 @@ func ParseXML(f io.Reader) {
 	}
 	root := doc.Root()
 	fmt.Printf("Root Element: %s\n", root.Tag)
-	// Testing: Iterating over all paragraphs
-	for i, p := range doc.FindElements("//sdt") {
-		if i == 8 {
-			break
-		}
+	// Iterating over all sdt elements which are also used by Citavi
+	for _, p := range doc.FindElements("//sdt") {
 		// TODO: there might references where Base64 part is split up into multiple
-		// instrText elements
+		// Finding instrText elements where bibliographical data is Base64 encoded
 		for _, x := range p.FindElements(".//instrText") {
 			encodedString := x.Text()
 			if !strings.HasPrefix(encodedString, "ADDIN CitaviPlaceholder") {
 				continue
 			}
 			// we first need to remove the parts like ADDIN CITAVI etc.
-			// as well as the trailing }
+			// as well as the trailing } (if present)
 			cleanEncodedString := strings.ReplaceAll(encodedString, "ADDIN CitaviPlaceholder{", "")
 			cleanEncodedString = strings.TrimSuffix(cleanEncodedString, "}")
-			//	fmt.Printf("%s", cleanEncodedString)
 
+			// Decoding Base64 encoding
 			decodedBytes, err := base64.StdEncoding.DecodeString(cleanEncodedString)
 			if err != nil {
 				fmt.Println("Fehler beim Dekodieren:", err)
 				continue
 			}
 
-			//decodedString := string(decodedBytes)
-
-			titleStr, err := parseTitleFromEntry(decodedBytes)
+			_, c, err := parseEntry(decodedBytes, bibliography)
 			if err != nil {
-				log.Fatalf("%e", err)
+				fmt.Printf("%e", err)
 			}
-			fmt.Println(titleStr)
-			// fmt.Println("Dekodierter String:", decodedString)
-			// writeToFile([]byte(decodedString), i)
+			citations += c
+			// TODO: ADD ENTRIES TO XML TREE HERE
 		}
 	}
 	fmt.Printf("We found %d citations.", citations)
@@ -91,41 +108,124 @@ func writeToFileJSON(t []byte, i int) {
 	}
 }
 
-func parseTitleFromEntry(e []byte) (string, error) {
+func parseEntry(e []byte, bibliography *parser.BibTeXFile) ([]BibEntry, int, error) {
 	var jsonData map[string]interface{}
-	var sb strings.Builder
+	var bibEntryList []BibEntry
+
+	// Unmarshalling first layer of Citavi JSON
 	err := json.Unmarshal(e, &jsonData)
 	if err != nil {
-		return "", errors.New("error when unmarshalling JSON")
+		return []BibEntry{}, 0, errors.New("error shalling JSON")
 	}
-	// next is Entries list
+
+	// Next is Entries list
 	var entriesData []map[string]interface{}
-	if entries, ok := jsonData["Entries"].([]interface{}); ok { // Korrektur: Assertion auf []interface{}
+	if entries, ok := jsonData["Entries"].([]interface{}); ok {
 		for _, entry := range entries {
 			if entryMap, ok := entry.(map[string]interface{}); ok {
 				entriesData = append(entriesData, entryMap)
 			} else {
-				return "", errors.New("error: Entries  Map[string]interface{}")
+				return []BibEntry{}, 0, errors.New("error: Entries Map[string]interface{} could not be parsed!")
 			}
 		}
 	} else {
-		return "", errors.New("error: jsonData['Entries'] ist kein []interface{}")
+		return []BibEntry{}, 0, errors.New("error: jsonData['Entries'] could not be parsed as []interface{}!")
 	}
-	// next we need to get Reference part of entry
+
+	// Next we need to get Reference part of each entry
 	var referencesData []map[string]interface{}
 	for _, entry := range entriesData {
 		if referencesMap, ok := entry["Reference"].(map[string]interface{}); ok {
 			referencesData = append(referencesData, referencesMap)
 		} else {
-			return "", errors.New("error: Could not find references")
-		}
-	}
-	// try parse titles
-	for _, ref := range referencesData {
-		if title, ok := ref["Title"].(string); ok {
-			sb.WriteString(fmt.Sprintf(" %s ||", title))
+			return []BibEntry{}, 0, errors.New("error: Could not find references")
 		}
 	}
 
-	return sb.String(), nil
+	// Try parsing titles, years, and citation key from BibTeX file
+	citations := 0
+	for _, ref := range referencesData {
+		bibEntry := BibEntry{}
+		if title, ok := ref["Title"].(string); ok {
+			bibEntry.Title = title
+		}
+		// Check if subtitle is present and add to main title in this case"
+		if subtitle, ok := ref["Subtitle"].(string); ok {
+			bibEntry.Title = fmt.Sprintf("%s %s", bibEntry.Title, subtitle)
+		}
+		if year, ok := ref["Year"].(string); ok {
+			bibEntry.Year = year
+		}
+		err := findCitationKey(&bibEntry, bibliography)
+		if err != nil {
+			log.Println(err)
+		} else {
+			citations++
+		}
+		bibEntryList = append(bibEntryList, bibEntry)
+	}
+
+	return bibEntryList, citations, nil
+}
+
+// Helper function to clean literature titles
+func cleanTitle(t string) string {
+	t = strings.ToLower(t)
+	// First, we replace all ä ö ü ß
+	t = strings.ReplaceAll(t, "ä", "a")
+	t = strings.ReplaceAll(t, "ö", "o")
+	t = strings.ReplaceAll(t, "ü", "u")
+	t = strings.ReplaceAll(t, "ß", "ss")
+
+	// Removing all non alphanumerical signs
+	re := regexp.MustCompile(`\W`)
+	t = re.ReplaceAllString(t, "")
+	return t
+}
+
+func findCitationKey(bibEntry *BibEntry, bibliography *parser.BibTeXFile) error {
+	// Iterating over all entries in BibTeX file in hope to find a matching entry
+	// TODO: Currently only comparing complete titles to find matching key
+	found := false
+	cleanTitleBib := cleanTitle(bibEntry.Title)
+	for _, e := range bibliography.Entries {
+		if title, exists := e.Fields["title"]; exists {
+			cleanTitleEntry := cleanTitle(title)
+			if strings.Contains(cleanTitleBib, cleanTitleEntry) {
+				// DEBUG
+				fmt.Printf("title entry: %s title bib: %s", cleanTitleEntry, cleanTitleBib)
+
+				if e.Key != "" {
+					// DEBUG
+					fmt.Printf("found key %s for entry with titel %s\n", e.Key, bibEntry.Title)
+					bibEntry.CitationKey = e.Key
+					found = true
+					break
+				}
+			}
+		}
+	}
+	if !found {
+		return errors.New(fmt.Sprintf("could not find any matching entries for %s in BibTeX file which is clean: %s", bibEntry.Title, cleanTitleBib))
+	} else {
+		return nil
+	}
+}
+
+func parseBibTeXFile(path string) (*parser.BibTeXFile, error) {
+	BibTeXFilePath := "bib.bib"
+	// Trying to open the file
+	file, err := os.Open(path)
+	if err != nil {
+		fmt.Println("Something went terribly wrong :-(")
+	}
+	defer file.Close()
+
+	bibtexData, err2 := parser.ParseNewBibTeXFile(file)
+	if err2 != nil {
+		fmt.Println("Something went terribly wrong :-(")
+	}
+	// Don't forget to add filename afterwards
+	bibtexData.FilePath = BibTeXFilePath
+	return bibtexData, nil
 }

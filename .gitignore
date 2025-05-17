@@ -1,4 +1,5 @@
 *.docx
+*.bib
 *.xml
 go.sum
 go.mod
