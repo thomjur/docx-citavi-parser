@@ -71,42 +71,52 @@ func ParseXML(f io.Reader, bibliography *parser.BibTeXFile, fileName string) {
 	fmt.Printf("Root Element: %s\n", root.Tag)
 	// Iterating over all sdt elements which are also used by Citavi
 	for _, p := range doc.FindElements("//sdt") {
-		// TODO: there might references where Base64 part is split up into multiple
 		// Finding instrText elements where bibliographical data is Base64 encoded
-		for _, x := range p.FindElements(".//instrText") {
+		// Some Base64 encodings are split up into several instrText elements
+		var sb strings.Builder
+		for i, x := range p.FindElements(".//instrText") {
 			encodedString := x.Text()
-			if !strings.HasPrefix(encodedString, "ADDIN CitaviPlaceholder") {
-				continue
+			// If first element does not start with ADDIN Citavi... we can skip
+			if !strings.HasPrefix(encodedString, "ADDIN CitaviPlaceholder") && i == 0 {
+				break
 			}
 			// we first need to remove the parts like ADDIN CITAVI etc.
 			// as well as the trailing } (if present)
-			cleanEncodedString := strings.ReplaceAll(encodedString, "ADDIN CitaviPlaceholder{", "")
-			cleanEncodedString = strings.TrimSuffix(cleanEncodedString, "}")
-
-			// Decoding Base64 encoding
-			decodedBytes, err := base64.StdEncoding.DecodeString(cleanEncodedString)
-			if err != nil {
-				//fmt.Println("Fehler beim Dekodieren:", err)
-				continue
+			if strings.HasPrefix(encodedString, "ADDIN CitaviPlaceholder") {
+				encodedString = strings.ReplaceAll(encodedString, "ADDIN CitaviPlaceholder{", "")
 			}
-
-			bibEntryList, c, err := parseEntry(decodedBytes, bibliography)
-			if err != nil {
-				//fmt.Printf("%e", err)
-				continue
+			// Check if this is final part of string
+			if strings.HasSuffix(encodedString, "}") {
+				encodedString = strings.TrimSuffix(encodedString, "}")
+				sb.WriteString(encodedString)
+				break
 			}
-			citations += c
-			// TODO: ADD ENTRIES TO XML TREE HERE
-			// Creating string that should be added
-			contentString := createCitationString(bibEntryList)
-			// Create new element with this string in XML tree
-			textContainer := p.FindElement("./sdtContent//r/t")
-			if textContainer != nil {
-				textContainer.SetText(fmt.Sprintf("%s %s", textContainer.Text(), contentString))
-				//DEBUG
-				fmt.Println(textContainer.Text())
-			}
+			sb.WriteString(encodedString)
 		}
+
+		// Decoding Base64 encoding
+		decodedBytes, err := base64.StdEncoding.DecodeString(sb.String())
+		if err != nil {
+			fmt.Println("Error when decoding Base64:", err)
+			continue
+		}
+
+		bibEntryList, c, err := parseEntry(decodedBytes, bibliography)
+		if err != nil {
+			//fmt.Printf("%e", err)
+			continue
+		}
+		citations += c
+		// Creating string that should be added
+		contentString := createCitationString(bibEntryList)
+		// Create new element with this string in XML tree
+		textContainer := p.FindElement("./sdtContent//r/t")
+		if textContainer != nil {
+			textContainer.SetText(fmt.Sprintf("%s %s", textContainer.Text(), contentString))
+			//DEBUG
+			fmt.Println(textContainer.Text())
+		}
+
 	}
 	fmt.Printf("We found %d citations.", citations)
 	// Writing new XML
