@@ -1,4 +1,5 @@
 *.docx
+docx-citavi-parser
 *.bib
 *.xml
 go.sum
