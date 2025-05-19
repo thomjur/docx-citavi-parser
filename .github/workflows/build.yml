@@ -30,7 +30,7 @@ jobs:
         go build -o citavi-docx-parser-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: citavi-docx-parser-${{ matrix.goos }}-${{ matrix.goarch }}
         path: citavi-docx-parser-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
