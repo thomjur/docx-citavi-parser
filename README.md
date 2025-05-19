@@ -19,7 +19,7 @@ The CLI program expects a DOCX file with CITAVI citations and a corresponding Bi
 
 Simply execute in the command line:
 
-``docx-citavi-parser <PATH-TO-WORD-FILE> <PATH-TO-BIBTEX-FILE>`
+`docx-citavi-parser <PATH-TO-WORD-FILE> <PATH-TO-BIBTEX-FILE>`
 
 The results are a `NEWDOCUMENT.xml` and `NEWFOOTNOTES.xml`, which include the CiteProc citations and should replace the former `document.xml` and `footnotes.xml` in the DOCX archive (in the subfolder word).
 
