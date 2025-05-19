@@ -2,5 +2,3 @@
 docx-citavi-parser
 *.bib
 *.xml
-go.sum
-go.mod

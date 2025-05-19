@@ -1,0 +1,6 @@
+github.com/beevik/etree v1.5.1 h1:TC3zyxYp+81wAmbsi8SWUpZCurbxa6S8RITYRSkNRwo=
+github.com/beevik/etree v1.5.1/go.mod h1:gPNJNaBGVZ9AwsidazFZyygnd+0pAU38N4D+WemwKNs=
+github.com/thomjur/verifybibtex v0.0.0-20250519084914-165cb7c5ffb2 h1:1bIkTgvaQpQOKxvXfLoUmKFbYC+yNEROBLMuk6i3jjg=
+github.com/thomjur/verifybibtex v0.0.0-20250519084914-165cb7c5ffb2/go.mod h1:/ge5pp9njqfKtHA66ZiV/0oClCRWR/vgWEkZQlQ2624=
+github.com/thomjur/verifybibtex v0.0.0-20250519092054-957563f3b6ab h1:fc+T0N544TNBCJBD4N5DQ4aYsfx8Gzp74Erm4eA0/hI=
+github.com/thomjur/verifybibtex v0.0.0-20250519092054-957563f3b6ab/go.mod h1:/ge5pp9njqfKtHA66ZiV/0oClCRWR/vgWEkZQlQ2624=
