@@ -1,6 +1,6 @@
 # DOCX-CITAVI-PARSER
 
-This program parses a DOCX file that includes embedded citations using CITAVI's Word plugin. It compares the embedded citations with entries in a BibTeX file to find the matching citation keys/IDs. It then adds the keys in the form of a CiteProc citation used by Pandoc.
+This program parses a DOCX file that includes embedded citations using CITAVI's Word plugin. It compares the embedded citations with entries in a BibTeX file to find the matching citation keys/IDs. It then adds the keys in the form of a Citeproc citation used by Pandoc.
 
 For example:
 
@@ -21,7 +21,7 @@ Simply execute in the command line:
 
 `docx-citavi-parser <PATH-TO-WORD-FILE> <PATH-TO-BIBTEX-FILE>`
 
-The results are a `NEWDOCUMENT.xml` and `NEWFOOTNOTES.xml`, which include the CiteProc citations and should replace the former `document.xml` and `footnotes.xml` in the DOCX archive (in the subfolder word).
+The results are a `NEWDOCUMENT.xml` and `NEWFOOTNOTES.xml`, which include the Citeproc citations and should replace the former `document.xml` and `footnotes.xml` in the DOCX archive (in the subfolder word).
 
 Please note that finding the keys in BibTeX currently only works via title comparisons, which misses quite a few entries, particularly those with a lot of non-Latin characters or accentuations.
 
